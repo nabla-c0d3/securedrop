@@ -5,7 +5,7 @@ import subprocess
 import time
 
 from io import BytesIO, StringIO
-from flask import session, escape, current_app, url_for, g
+from flask import session, escape, current_app, url_for, g, request
 from mock import patch, ANY
 
 import crypto_util
@@ -204,9 +204,19 @@ def test_lookup(source_app):
         text = resp.data.decode('utf-8')
         assert "public key" in text
         # download the public key
-        resp = app.get(url_for('info.download_journalist_pubkey'))
+        resp = app.get(url_for('info.download_public_key'))
         text = resp.data.decode('utf-8')
         assert "BEGIN PGP PUBLIC KEY BLOCK" in text
+
+
+def test_journalist_key_redirects_to_public_key(source_app):
+    """Test that the /journalist-key route redirects to /public-key."""
+    with source_app.test_client() as app:
+        resp = app.get(url_for('info.download_journalist_key'))
+        assert resp.status_code == 301
+        resp = app.get(url_for('info.download_journalist_key'), follow_redirects=True)
+        assert request.path == url_for('info.download_public_key')
+        assert "BEGIN PGP PUBLIC KEY BLOCK" in resp.data.decode('utf-8')
 
 
 def test_login_and_logout(source_app):
@@ -576,7 +586,7 @@ def test_why_use_tor_browser(source_app):
 
 def test_why_journalist_key(source_app):
     with source_app.test_client() as app:
-        resp = app.get(url_for('info.why_download_journalist_pubkey'))
+        resp = app.get(url_for('info.why_download_public_key'))
         assert resp.status_code == 200
         text = resp.data.decode('utf-8')
         assert "Why download the team's public key?" in text
@@ -727,6 +737,7 @@ def test_source_session_expiration(config, source_app):
         # which is always present and 'csrf_token' which leaks no info)
         session.pop('expires', None)
         session.pop('csrf_token', None)
+        session.pop('show_expiration_message', None)
         assert not session
 
         text = resp.data.decode('utf-8')
@@ -752,10 +763,29 @@ def test_source_session_expiration_create(config, source_app):
         # which is always present and 'csrf_token' which leaks no info)
         session.pop('expires', None)
         session.pop('csrf_token', None)
+        session.pop('show_expiration_message', None)
         assert not session
 
         text = resp.data.decode('utf-8')
         assert 'You were logged out due to inactivity' in text
+
+
+def test_source_no_session_expiration_message_when_not_logged_in(config, source_app):
+    """If sources never logged in, no message should be displayed
+    after SESSION_EXPIRATION_MINUTES."""
+
+    with source_app.test_client() as app:
+        seconds_session_expire = 1
+        config.SESSION_EXPIRATION_MINUTES = seconds_session_expire / 60.
+
+        resp = app.get(url_for('main.index'))
+        assert resp.status_code == 200
+
+        time.sleep(seconds_session_expire + 1)
+
+        refreshed_resp = app.get(url_for('main.index'), follow_redirects=True)
+        text = refreshed_resp.data.decode('utf-8')
+        assert 'You were logged out due to inactivity' not in text
 
 
 def test_csrf_error_page(config, source_app):

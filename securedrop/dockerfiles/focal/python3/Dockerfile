@@ -1,5 +1,5 @@
-# ubuntu 16.04 image from 2019-03-12
-FROM ubuntu@sha256:58d0da8bc2f434983c6ca4713b08be00ff5586eb5cdff47bcde4b2e88fd40f88
+# ubuntu 20.04 image from 2020-09-26
+FROM ubuntu@sha256:2e70e9c81838224b5311970dbf7ed16802fbfe19e7a70b3cbfa3d7522aa285b4
 ARG USER_NAME
 ENV USER_NAME ${USER_NAME:-root}
 ARG USER_ID
@@ -9,8 +9,8 @@ ENV USER_ID ${USER_ID:-0}
 RUN apt-get update && apt-get install -y paxctl && \
     { apt-get install -y libgtk2.0 || echo 'libgtk2.0 was not installed'; } && \
     paxctl -cm /usr/bin/mono-sgen && dpkg-reconfigure mono-runtime-sgen && \
-    apt-get install -y apache2-dev coreutils devscripts dh-virtualenv vim \
-                       python3-pip python3-all python3-venv virtualenv libpython3.5-dev libssl-dev \
+    apt-get install -y apache2-dev coreutils devscripts vim \
+                       python3-pip python3-all python3-venv virtualenv libpython3.8-dev libssl-dev \
                        gnupg2 ruby redis-server git xvfb haveged curl wget \
                        gettext paxctl x11vnc enchant libffi-dev sqlite3 gettext sudo \
                        libasound2 libdbus-glib-1-2 libgtk2.0-0 libfontconfig1 libxrender1 \
