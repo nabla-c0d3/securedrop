@@ -274,7 +274,7 @@ jobs:
             BRANCH_MATCH=$(devops/scripts/match-ci-branch.sh "^(i18n|update-builder)")
             if [[ $BRANCH_MATCH =~ ^found ]]; then echo "Skipping: ${BRANCH_MATCH}"; exit 0; fi
             cd journalist_gui
-            QT_QPA_PLATFORM=offscreen pipenv run python3 test_gui.py
+            QT_QPA_PLATFORM=offscreen pipenv run python3 test_gui.py -v $2>/dev/null
 
   static-analysis-and-no-known-cves:
     machine:
@@ -321,6 +321,37 @@ jobs:
             BRANCH_MATCH=$(devops/scripts/match-ci-branch.sh "^(i18n)")
             if [[ $BRANCH_MATCH =~ ^found ]]; then echo "Skipping: ${BRANCH_MATCH}"; exit 0; fi
             make ci-go
+          no_output_timeout: 35m
+
+      - run:
+          name: Ensure environment torn down
+          # Always report true, since env should will destroyed already
+          # if all tests passed.
+          command: make ci-teardown || true
+          when: always
+
+      - store_test_results:
+          path: ~/sd/junit
+
+      - store_artifacts:
+          path: ~/sd/junit
+
+  staging-test-with-rebase-focal:
+    machine:
+      enabled: true
+
+    working_directory: ~/sd
+    steps:
+      - checkout
+      - *rebaseontarget
+      - *installenchant
+
+      - run:
+          name: Run Staging tests on GCE
+          command: |
+            BRANCH_MATCH=$(devops/scripts/match-ci-branch.sh "^(i18n)")
+            if [[ $BRANCH_MATCH =~ ^found ]]; then echo "Skipping: ${BRANCH_MATCH}"; exit 0; fi
+            BASE_OS=focal make ci-go
           no_output_timeout: 35m
 
       - run:
@@ -409,6 +440,13 @@ workflows:
           requires:
             - lint
       - staging-test-with-rebase:
+          filters:
+            branches:
+              ignore:
+                - /i18n-.*/
+          requires:
+            - lint
+      - staging-test-with-rebase-focal:
           filters:
             branches:
               ignore:
