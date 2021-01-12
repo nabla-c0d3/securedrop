@@ -10,8 +10,8 @@ from io import BytesIO, StringIO
 from flask import session, escape, url_for, g, request
 from mock import patch, ANY
 
-import crypto_util
 from passphrases import PassphraseGenerator
+from source_app.session_manager import SessionManager
 from . import utils
 import version
 
@@ -23,8 +23,6 @@ from source_app import api as source_app_api
 from .utils.db_helper import new_codename
 from .utils.instrument import InstrumentedApp
 from sdconfig import config
-
-overly_long_codename = 'a' * (PassphraseGenerator.MAX_PASSPHRASE_LENGTH + 1)
 
 
 def test_logo_default_available(source_app):
@@ -632,19 +630,16 @@ def test_metadata_v3_url(config, source_app):
 
 def test_login_with_overly_long_codename(source_app):
     """Attempting to login with an overly long codename should result in
-    an error, and scrypt should not be called to avoid DoS."""
-    with patch.object(crypto_util.CryptoUtil, 'hash_codename') \
-            as mock_hash_codename:
-        with source_app.test_client() as app:
-            resp = app.post(url_for('main.login'),
-                            data=dict(codename=overly_long_codename),
-                            follow_redirects=True)
-            assert resp.status_code == 200
-            text = resp.data.decode('utf-8')
-            assert ("Field must be between 1 and {} characters long."
-                    .format(PassphraseGenerator.MAX_PASSPHRASE_LENGTH)) in text
-            assert not mock_hash_codename.called, \
-                "Called hash_codename for codename w/ invalid length"
+    an error to avoid DoS."""
+    overly_long_codename = 'a' * (PassphraseGenerator.MAX_PASSPHRASE_LENGTH + 1)
+    with source_app.test_client() as app:
+        resp = app.post(url_for('main.login'),
+                        data=dict(codename=overly_long_codename),
+                        follow_redirects=True)
+        assert resp.status_code == 200
+        text = resp.data.decode('utf-8')
+        assert ("Field must be between 1 and {} characters long."
+                .format(PassphraseGenerator.MAX_PASSPHRASE_LENGTH)) in text
 
 
 def test_failed_normalize_timestamps_logs_warning(source_app):
@@ -679,28 +674,22 @@ def test_source_is_deleted_while_logged_in(source_app):
     """If a source is deleted by a journalist when they are logged in,
     a NoResultFound will occur. The source should be redirected to the
     index when this happens, and a warning logged."""
+    with source_app.test_client() as app:
+        codename = new_codename(app, session)
+        resp = app.post('login', data=dict(codename=codename),
+                        follow_redirects=True)
 
-    with patch.object(source_app.logger, 'error') as logger:
-        with source_app.test_client() as app:
-            codename = new_codename(app, session)
-            resp = app.post('login', data=dict(codename=codename),
-                            follow_redirects=True)
+        # Now the journalist deletes the source
+        filesystem_id = g.filesystem_id
+        delete_collection(filesystem_id)
 
-            # Now the journalist deletes the source
-            filesystem_id = source_app.crypto_util.hash_codename(codename)
-            delete_collection(filesystem_id)
-
-            # Source attempts to continue to navigate
-            resp = app.post(url_for('main.lookup'), follow_redirects=True)
-            assert resp.status_code == 200
-            text = resp.data.decode('utf-8')
-            assert 'First submission' in text
-            assert 'logged_in' not in session
-            assert 'codename' not in session
-
-        logger.assert_called_once_with(
-            "Found no Sources when one was expected: No row was found for one()"
-        )
+        # Source attempts to continue to navigate
+        resp = app.get(url_for('main.lookup'), follow_redirects=True)
+        assert resp.status_code == 200
+        text = resp.data.decode('utf-8')
+        assert 'First submission' in text
+        assert 'logged_in' not in session
+        assert 'codename' not in session
 
 
 def test_login_with_invalid_codename(source_app):
@@ -729,6 +718,7 @@ def test_source_session_expiration(config, source_app):
                         data=dict(codename=codename),
                         follow_redirects=True)
         assert resp.status_code == 200
+        SessionManager.expire_all_user_sessions()
         resp = app.get(url_for('main.lookup'), follow_redirects=True)
 
         # check that the session was cleared (apart from 'expires'
